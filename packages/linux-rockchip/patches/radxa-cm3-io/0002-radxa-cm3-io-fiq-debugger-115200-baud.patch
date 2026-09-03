@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ruhan <35257374+RuhanSA079@users.noreply.github.com>
+Date: Wed, 2 Sep 2026 00:00:00 +0000
+Subject: [PATCH] radxa-cm3-io: fiq-debugger console at 115200 baud
+
+The Radxa CM3 IO's board dts (added by the previous patch) does not
+carry its own /chosen or serial console setup; it inherits both from
+the shared rk3568-linux.dtsi, which puts the debug console on the
+Rockchip fiq-debugger driver (ttyFIQ0) at a non-standard 1500000
+baud. Switch it to the standard 115200 so it matches the U-Boot
+console. Unlike a plain 8250 UART, ttyFIQ0's baud is fixed by this
+"rockchip,baudrate" property, not by the "console=" bootarg speed.
+
+---
+ arch/arm64/boot/dts/rockchip/rk3568-linux.dtsi | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/rockchip/rk3568-linux.dtsi b/arch/arm64/boot/dts/rockchip/rk3568-linux.dtsi
+--- a/arch/arm64/boot/dts/rockchip/rk3568-linux.dtsi
++++ b/arch/arm64/boot/dts/rockchip/rk3568-linux.dtsi
+@@ -22,7 +22,7 @@
+ 		rockchip,wake-irq = <0>;
+ 		/* If enable uart uses irq instead of fiq */
+ 		rockchip,irq-mode-enable = <1>;
+-		rockchip,baudrate = <1500000>;  /* Only 115200 and 1500000 */
++		rockchip,baudrate = <115200>;  /* Only 115200 and 1500000 */
+ 		interrupts = <GIC_SPI 252 IRQ_TYPE_LEVEL_LOW>;
+ 		pinctrl-names = "default";
+ 		pinctrl-0 = <&uart2m0_xfer>;
+--
+2.43.0

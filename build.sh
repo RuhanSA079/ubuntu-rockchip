@@ -25,7 +25,7 @@ Optional arguments:
 HEREDOC
 }
 
-if [ "$(id -u)" -ne 0 ]; then 
+if [ "$(id -u)" -ne 0 ]; then
     echo "Please run as root"
     exit 1
 fi
@@ -167,6 +167,24 @@ if [ "${CLEAN}" == "Y" ]; then
     rm -rf build
 fi
 
+host_deps=(
+    debhelper dpkg-dev devscripts fakeroot
+    crossbuild-essential-arm64
+    parted gcc make bc bison flex
+    device-tree-compiler udev python3
+    libpython3-dev python3-pyelftools python3-setuptools
+    python3-pkg-resources swig libfdt-dev libssl-dev
+    debootstrap qemu-user-static binfmt-support
+)
+missing_deps=()
+for pkg in "${host_deps[@]}"; do
+    dpkg -s "${pkg}" &> /dev/null || missing_deps+=("${pkg}")
+done
+if [ "${#missing_deps[@]}" -gt 0 ]; then
+    apt-get update
+    apt-get install -y "${missing_deps[@]}"
+fi
+
 mkdir -p build/logs && exec > >(tee "build/logs/build-$(date +"%Y%m%d%H%M%S").log") 2>&1
 
 if [ "${KERNEL_ONLY}" == "Y" ]; then
@@ -183,7 +201,11 @@ if [ "${ROOTFS_ONLY}" == "Y" ]; then
         usage
         exit 1
     fi
+if [ "${FLAVOR}" == "base" ]; then
+    ./scripts/build-baserootfs.sh
+else
     ./scripts/build-rootfs.sh
+fi
     exit 0
 fi
 
@@ -217,7 +239,11 @@ if [[ ${LAUNCHPAD} != "Y" ]]; then
 fi
 
 # Create the root filesystem
-./scripts/build-rootfs.sh
+if [ "${FLAVOR}" == "base" ]; then
+    ./scripts/build-baserootfs.sh
+else
+    ./scripts/build-rootfs.sh
+fi
 
 # Create the disk image
 ./scripts/config-image.sh

@@ -40,6 +40,11 @@ cd "${tmp_dir}" || exit 1
 git clone https://github.com/Joshua-Riek/livecd-rootfs
 cd livecd-rootfs || exit 1
 
+# keyserver.ubuntu.com's plain HKP endpoint (port 80) is prone to timeouts
+# and failed key fetches for EXTRA_PPAS ("NO_PUBKEY ..." apt errors below).
+# Its hkps (TLS) endpoint is more reliable, so prefer that instead.
+sed -i 's#--keyserver hkp://keyserver.ubuntu.com:80/#--keyserver hkps://keyserver.ubuntu.com#' live-build/auto/config
+
 # Install build deps
 apt-get update
 apt-get build-dep . -y
@@ -84,6 +89,9 @@ lb config \
     --parent-mirror-binary "http://ports.ubuntu.com" \
     --keyring-packages ubuntu-keyring \
     --linux-flavours "${KERNEL_FLAVOR}"
+
+mkdir -p config/archives
+curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xF02122ECF25FB4D7" -o config/archives/jjriek-rockchip.key.chroot
 
 if [ "${SUITE}" == "noble" ] || [ "${SUITE}" == "jammy" ]; then
     # Pin rockchip package archives

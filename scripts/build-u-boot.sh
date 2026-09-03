@@ -16,13 +16,23 @@ if [[ -z ${UBOOT_PACKAGE} ]]; then
     exit 1
 fi
 
+# shellcheck source=/dev/null
+source ../packages/"${UBOOT_PACKAGE}"/debian/upstream
+
 if [ ! -d "${UBOOT_PACKAGE}" ]; then
-    # shellcheck source=/dev/null
-    source ../packages/"${UBOOT_PACKAGE}"/debian/upstream
     git clone --single-branch --progress -b "${BRANCH}" "${GIT}" "${UBOOT_PACKAGE}"
-    git -C "${UBOOT_PACKAGE}" checkout "${COMMIT}"
-    cp -r ../packages/"${UBOOT_PACKAGE}"/debian "${UBOOT_PACKAGE}"
 fi
+
+# Always reset to a clean checkout of the pinned commit and resync the
+# debian packaging from packages/${UBOOT_PACKAGE}. Without this, a cached
+# checkout from a previous (possibly failed, possibly patched-and-never-
+# unpatched) build would keep being reused as-is, silently ignoring any
+# changes made to the packaging (patches, rules, targets.mk, ...) since.
+git -C "${UBOOT_PACKAGE}" checkout -f "${COMMIT}"
+git -C "${UBOOT_PACKAGE}" clean -fdx
+rm -rf "${UBOOT_PACKAGE}/debian"
+cp -r ../packages/"${UBOOT_PACKAGE}"/debian "${UBOOT_PACKAGE}"
+
 cd "${UBOOT_PACKAGE}"
 
 # Target package to build

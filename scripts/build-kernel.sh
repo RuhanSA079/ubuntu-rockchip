@@ -20,12 +20,29 @@ fi
 source "../config/suites/${SUITE}.sh"
 
 # Clone the kernel repo
-if ! git -C linux-rockchip pull; then
+if [ ! -d linux-rockchip ]; then
     git clone --progress -b "${KERNEL_BRANCH}" "${KERNEL_REPO}" linux-rockchip --depth=2
 fi
 
 cd linux-rockchip
-git checkout "${KERNEL_BRANCH}"
+
+# Always reset to a clean checkout of the branch tip and discard any state
+# left behind by a previous (possibly failed, possibly patched) build, so
+# board-specific patches below always apply against a pristine tree.
+git fetch --depth=2 origin "${KERNEL_BRANCH}"
+git checkout -f FETCH_HEAD
+git clean -fdx
+
+# Apply any board-specific kernel patches (e.g. device trees not yet part
+# of this branch). These are purely additive per-board changes, so it is
+# safe to skip this entirely when BOARD is unset (kernel-only builds).
+if [[ -n ${BOARD} ]] && [[ -f ../../packages/linux-rockchip/patches/${BOARD}/series ]]; then
+    while IFS= read -r patch_name; do
+        [[ -z ${patch_name} ]] && continue
+        echo "Applying kernel patch: ${patch_name}"
+        patch -p1 < "../../packages/linux-rockchip/patches/${BOARD}/${patch_name}"
+    done < "../../packages/linux-rockchip/patches/${BOARD}/series"
+fi
 
 # shellcheck disable=SC2046
 export $(dpkg-architecture -aarm64)
