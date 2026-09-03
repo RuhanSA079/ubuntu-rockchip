@@ -1,29 +1,4 @@
 // SPDX-License-Identifier: GPL-2.0
-/*
- * Radxa CM3 IO -- peripheral 1: USB 3.0 (default).
- *
- * combphy1 (phy@fe830000) is a single Naneng combo PHY shared between
- * usb_host1_xhci and sata1, so exactly one of the two may be enabled.
- * A CH482D 2:1 high-speed mux on the board then routes the differential
- * pair to either the USB 3.0 type-A port or the SATA connector; its
- * select line is GPIO3_PC7 (bank 3, offset 23), where LOW selects the
- * USB 3.0 branch and HIGH selects SATA.
- *
- * The stock DTB enables usb_host1_xhci but never drives the mux select
- * line at all, leaving it floating. This overlay is therefore not quite
- * a no-op: it pins the line low so USB 3.0 is selected deterministically
- * rather than by whatever the CH482D happens to default to.
- *
- * Written against mainline node labels (usb_host1_xhci, sata1, combphy1)
- * rather than the Radxa BSP labels (usbhost_dwc3, usbhost30) used by
- * radxa/overlays, and drives the select line with a gpio-hog instead of
- * a fixed-regulator-with-always-on so the intended physical level is
- * stated outright and can be read back from /sys/kernel/debug/gpio.
- *
- * Deliberately free of any #include so it builds with plain dtc, with no
- * cpp pass and no kernel headers: 23 is RK_PC7 and the trailing 0 in
- * "gpios" is GPIO_ACTIVE_HIGH, i.e. logical level == physical level.
- */
 
 /dts-v1/;
 /plugin/;

@@ -1,31 +1,4 @@
 // SPDX-License-Identifier: GPL-2.0
-/*
- * Radxa CM3 IO -- peripheral 2: PCIe 2.0 x1 (M.2 slot).
- *
- * combphy2 (phy@fe840000) is shared between pcie2x1 and sata2, so
- * exactly one of the two may be enabled, and a second CH482D 2:1 mux
- * routes the pair to either the M.2 connector or the SATA connector.
- * Its select line is GPIO3_PC6 (bank 3, offset 22): LOW selects PCIe,
- * HIGH selects SATA. See cm3-io-p1-usb3.dtso for why the level is set
- * with a gpio-hog and why this file has no #includes.
- *
- * The stock DTB leaves combphy2, pcie2x1 and sata2 all disabled, so
- * peripheral 2 is dead until one of these overlays is applied.
- *
- * mainline's rk356x pcie2x1 node is only the SoC half of the story --
- * it carries no board wiring at all -- so the four properties the
- * controller needs to actually train a link have to be added here.
- * They match what Radxa put in their own board DTS and overlay:
- *
- *   reset-gpios     PERST# on GPIO1_PB2 (bank 1, offset 10), active high
- *   vpcie3v3-supply the 3V3 rail feeding the slot, vcc3v3_sys
- *   pinctrl-0       pcie20m2_pins, mux group m2 for the CLKREQ/WAKE/PERST
- *                   signals on this board
- *
- * pinctrl-names is set alongside pinctrl-0 because, unlike the Radxa BSP
- * DTS this was ported from, the mainline node declares neither -- and a
- * pinctrl-0 with no matching name in pinctrl-names is silently ignored.
- */
 
 /dts-v1/;
 /plugin/;

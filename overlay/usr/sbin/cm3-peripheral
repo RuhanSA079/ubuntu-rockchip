@@ -1,23 +1,4 @@
 #!/bin/bash
-# cm3-peripheral -- select the mode of the two muxed high-speed peripherals
-# on the Radxa CM3 IO board.
-#
-# The RK3566 has two Naneng combo PHYs, each shared by two controllers, and
-# the CM3 IO board puts a CH482D 2:1 high-speed mux behind each one:
-#
-#   peripheral 1  combphy1 @ fe830000  USB 3.0 type-A  or  SATA   mux GPIO3_PC7
-#   peripheral 2  combphy2 @ fe840000  M.2 PCIe 2.0 x1 or  SATA   mux GPIO3_PC6
-#
-# Only one controller per PHY can be enabled, so the choice has to be made in
-# the device tree before the kernel starts. This tool keeps one device tree
-# overlay per peripheral in /boot/dtbo, records the selection in
-# /etc/default/u-boot, and regenerates the extlinux config with u-boot-update
-# so U-Boot applies the overlays via its "fdtoverlays" keyword at boot.
-#
-# If a selection ever leaves the board unbootable, pick the "(rescue target)"
-# entry in the U-Boot boot menu: u-boot-update deliberately emits fdtoverlays
-# only on the default entry, so the rescue entry always boots the stock,
-# un-overlaid device tree. From there, "cm3-peripheral set <p> stock" undoes it.
 
 set -u
 
@@ -62,10 +43,6 @@ the one labelled SATA1.
 EOF
 }
 
-# --- reading state -----------------------------------------------------------
-
-# The overlay list currently recorded in /etc/default/u-boot. Sourcing the file
-# is what u-boot-update itself does, so this reads it exactly the same way.
 read_configured_list() {
 	local U_BOOT_FDT_OVERLAYS=""
 	# shellcheck source=/dev/null
@@ -73,7 +50,6 @@ read_configured_list() {
 	printf '%s' "${U_BOOT_FDT_OVERLAYS}"
 }
 
-# Mode configured for a peripheral, from its entry in the overlay list.
 configured_mode() {
 	local p="$1" dtbo
 	for dtbo in $(read_configured_list); do
@@ -88,8 +64,6 @@ configured_mode() {
 	printf 'stock'
 }
 
-# Any overlays in the list that this tool does not manage, preserved verbatim
-# across edits so a hand-added overlay is not silently dropped.
 foreign_overlays() {
 	local dtbo
 	for dtbo in $(read_configured_list); do
@@ -106,7 +80,6 @@ dt_status() {
 	tr -d '\000' < "$node"
 }
 
-# Mode the running kernel actually booted with, read back from the live DT.
 running_mode() {
 	case "$1" in
 		p1)
@@ -121,8 +94,6 @@ running_mode() {
 	printf 'none'
 }
 
-# Physical level of a mux select line, via the gpio-hog's line-name. Root only,
-# and only meaningful once an overlay that hogs the line has been applied.
 mux_line() {
 	local want="$1" line
 	[ -r /sys/kernel/debug/gpio ] || { printf 'n/a (needs root)'; return; }
@@ -135,8 +106,6 @@ mux_line() {
 	esac
 }
 
-# --- status ------------------------------------------------------------------
-
 show_one() {
 	local p="$1" desc="$2" modes="$3" cfg run mux effective
 	cfg=$(configured_mode "$p")
@@ -146,8 +115,6 @@ show_one() {
 	printf '  configured : %s\n' "$cfg"
 	printf '  running    : %s\n' "$run"
 	printf '  mux line   : %s\n' "$mux"
-	# "stock" boots as usb3 on p1 and as nothing on p2, so compare against
-	# that rather than report a pending reboot that would change nothing.
 	effective="$cfg"
 	if [ "$cfg" = "stock" ]; then
 		case "$p" in
@@ -174,9 +141,6 @@ do_status() {
 	return 0
 }
 
-# --- applying ----------------------------------------------------------------
-
-# Build the overlay list a given pair of modes implies, foreign entries first.
 build_list() {
 	local m1="$1" m2="$2" list
 	list=$(foreign_overlays)
@@ -185,10 +149,6 @@ build_list() {
 	printf '%s' "${list% }"
 }
 
-# Merge the overlays onto the real board DTB with fdtoverlay before touching any
-# boot configuration. This is the safety net: a label U-Boot could not resolve,
-# or a fragment targeting a node this kernel's DTB does not have, fails here
-# rather than at boot.
 validate_list() {
 	local list="$1" dir="$2" tmp rc=0 dtbo paths=""
 	[ -n "$list" ] || return 0
@@ -208,8 +168,6 @@ validate_list() {
 		rm -f "$tmp"
 		die "overlays failed to apply to $BOARD_DTB -- boot config left unchanged"
 	fi
-	# fdtoverlay can exit 0 having produced nothing useful, so confirm the
-	# result is a device tree that still parses.
 	if ! fdtget "$tmp" / compatible >/dev/null 2>&1; then
 		rm -f "$tmp"
 		die "merged device tree did not parse -- boot config left unchanged"
@@ -217,8 +175,6 @@ validate_list() {
 	rm -f "$tmp"
 }
 
-# Only this tool's own overlays are removed from DTBO_DIR; anything else in
-# there was put there by hand and is left alone.
 sync_dtbo_dir() {
 	local list="$1" dtbo f
 	mkdir -p "$DTBO_DIR"
@@ -251,8 +207,6 @@ apply() {
 	local m1="$1" m2="$2" list
 	list=$(build_list "$m1" "$m2")
 
-	# Validate the library copies first, then install and validate again from
-	# DTBO_DIR, so what actually landed in /boot is what got checked.
 	validate_list "$list" "$OVERLAY_LIB"
 	sync_dtbo_dir "$list"
 	validate_list "$list" "$DTBO_DIR"
@@ -278,8 +232,6 @@ valid_mode() {
 	for m in $list; do [ "$m" = "$mode" ] && return 0; done
 	return 1
 }
-
-# --- entry point -------------------------------------------------------------
 
 cmd="${1:-status}"
 case "$cmd" in

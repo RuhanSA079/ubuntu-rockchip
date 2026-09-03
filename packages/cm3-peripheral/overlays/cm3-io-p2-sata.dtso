@@ -1,18 +1,4 @@
 // SPDX-License-Identifier: GPL-2.0
-/*
- * Radxa CM3 IO -- peripheral 2: SATA.
- *
- * Claims combphy2 (phy@fe840000) for sata2 and leaves pcie2x1 disabled,
- * so the M.2 slot is inactive in this mode. GPIO3_PC6 (bank 3, offset
- * 22) is the CH482D mux select line; HIGH routes the pair to the SATA
- * connector. See cm3-io-p1-usb3.dtso for why this is a gpio-hog and why
- * there are no #includes.
- *
- * NOTE: on Radxa CM3 IO boards v1.3 and earlier the two SATA connectors
- * are silkscreened the wrong way round, so this port is the one labelled
- * SATA1 on the board. Radxa document the same caveat on their own
- * radxa-cm3-io-sata2 overlay.
- */
 
 /dts-v1/;
 /plugin/;
