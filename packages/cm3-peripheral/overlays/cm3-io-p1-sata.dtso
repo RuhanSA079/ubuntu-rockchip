@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Radxa CM3 IO -- peripheral 1: SATA.
+ *
+ * Claims combphy1 (phy@fe830000) for sata1 and disables usb_host1_xhci,
+ * which the same PHY would otherwise be serving. Disabling that
+ * controller takes the whole USB 3.0 type-A port down, USB 2.0 included,
+ * because both speeds are handled by that one dwc3 instance -- the same
+ * thing radxa/overlays does by disabling usbhost_dwc3 and usbhost30.
+ *
+ * GPIO3_PC7 (bank 3, offset 23) is the CH482D mux select line; HIGH
+ * routes the pair to the SATA connector. See cm3-io-p1-usb3.dtso for
+ * why this is a gpio-hog and why there are no #includes.
+ *
+ * NOTE: on Radxa CM3 IO boards v1.3 and earlier the two SATA connectors
+ * are silkscreened the wrong way round, so this port is the one labelled
+ * SATA2 on the board. Radxa document the same caveat on their own
+ * radxa-cm3-io-sata1 overlay.
+ */
+
+/dts-v1/;
+/plugin/;
+
+/ {
+	fragment@0 {
+		target = <&gpio3>;
+		__overlay__ {
+			cm3-io-p1-mux-hog {
+				gpio-hog;
+				gpios = <23 0>;
+				output-high;
+				line-name = "cm3-io-p1-mux-sata";
+			};
+		};
+	};
+
+	fragment@1 {
+		target = <&combphy1>;
+		__overlay__ {
+			status = "okay";
+		};
+	};
+
+	fragment@2 {
+		target = <&usb_host1_xhci>;
+		__overlay__ {
+			status = "disabled";
+		};
+	};
+
+	fragment@3 {
+		target = <&sata1>;
+		__overlay__ {
+			status = "okay";
+		};
+	};
+};

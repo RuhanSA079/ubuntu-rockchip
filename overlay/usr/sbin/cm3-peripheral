@@ -1,0 +1,316 @@
+#!/bin/bash
+# cm3-peripheral -- select the mode of the two muxed high-speed peripherals
+# on the Radxa CM3 IO board.
+#
+# The RK3566 has two Naneng combo PHYs, each shared by two controllers, and
+# the CM3 IO board puts a CH482D 2:1 high-speed mux behind each one:
+#
+#   peripheral 1  combphy1 @ fe830000  USB 3.0 type-A  or  SATA   mux GPIO3_PC7
+#   peripheral 2  combphy2 @ fe840000  M.2 PCIe 2.0 x1 or  SATA   mux GPIO3_PC6
+#
+# Only one controller per PHY can be enabled, so the choice has to be made in
+# the device tree before the kernel starts. This tool keeps one device tree
+# overlay per peripheral in /boot/dtbo, records the selection in
+# /etc/default/u-boot, and regenerates the extlinux config with u-boot-update
+# so U-Boot applies the overlays via its "fdtoverlays" keyword at boot.
+#
+# If a selection ever leaves the board unbootable, pick the "(rescue target)"
+# entry in the U-Boot boot menu: u-boot-update deliberately emits fdtoverlays
+# only on the default entry, so the rescue entry always boots the stock,
+# un-overlaid device tree. From there, "cm3-peripheral set <p> stock" undoes it.
+
+set -u
+
+OVERLAY_LIB="/usr/lib/cm3-peripheral/overlays"
+DTBO_DIR="/boot/dtbo"
+UBOOT_DEFAULTS="/etc/default/u-boot"
+BOARD_DTB="/lib/firmware/$(uname -r)/device-tree/rockchip/rk3566-radxa-cm3-io.dtb"
+
+P1_MODES="usb3 sata stock"
+P2_MODES="pcie sata stock"
+
+die() { printf 'cm3-peripheral: %s\n' "$*" >&2; exit 1; }
+
+need_root() {
+	[ "$(id -u)" -eq 0 ] || die "must be run as root (try: sudo cm3-peripheral ...)"
+}
+
+usage() {
+	cat <<'EOF'
+Usage:
+  cm3-peripheral status                     show configured and running modes
+  cm3-peripheral list                       show the available modes
+  cm3-peripheral set p1 <mode> [p2 <mode>]  select modes, then reboot to apply
+  cm3-peripheral reset                      return both to stock
+
+Modes:
+  p1   usb3    USB 3.0 type-A port          (combphy1 -> usb_host1_xhci)
+       sata    SATA port                    (combphy1 -> sata1)
+       stock   whatever the base DTB does   (currently: USB 3.0, mux undriven)
+
+  p2   pcie    M.2 PCIe 2.0 x1 slot         (combphy2 -> pcie2x1)
+       sata    SATA port                    (combphy2 -> sata2)
+       stock   whatever the base DTB does   (currently: neither, PHY off)
+
+Examples:
+  cm3-peripheral set p2 sata
+  cm3-peripheral set p1 sata p2 pcie
+
+On Radxa CM3 IO v1.3 and earlier the two SATA connectors are silkscreened the
+wrong way round: peripheral 1 is the connector labelled SATA2, and peripheral 2
+the one labelled SATA1.
+EOF
+}
+
+# --- reading state -----------------------------------------------------------
+
+# The overlay list currently recorded in /etc/default/u-boot. Sourcing the file
+# is what u-boot-update itself does, so this reads it exactly the same way.
+read_configured_list() {
+	local U_BOOT_FDT_OVERLAYS=""
+	# shellcheck source=/dev/null
+	[ -r "$UBOOT_DEFAULTS" ] && . "$UBOOT_DEFAULTS"
+	printf '%s' "${U_BOOT_FDT_OVERLAYS}"
+}
+
+# Mode configured for a peripheral, from its entry in the overlay list.
+configured_mode() {
+	local p="$1" dtbo
+	for dtbo in $(read_configured_list); do
+		case "$dtbo" in
+			cm3-io-"${p}"-*.dtbo)
+				dtbo="${dtbo#cm3-io-${p}-}"
+				printf '%s' "${dtbo%.dtbo}"
+				return 0
+				;;
+		esac
+	done
+	printf 'stock'
+}
+
+# Any overlays in the list that this tool does not manage, preserved verbatim
+# across edits so a hand-added overlay is not silently dropped.
+foreign_overlays() {
+	local dtbo
+	for dtbo in $(read_configured_list); do
+		case "$dtbo" in
+			cm3-io-p1-*.dtbo|cm3-io-p2-*.dtbo) ;;
+			*) printf '%s ' "$dtbo" ;;
+		esac
+	done
+}
+
+dt_status() {
+	local node="/proc/device-tree/$1/status"
+	[ -r "$node" ] || { printf 'absent'; return; }
+	tr -d '\000' < "$node"
+}
+
+# Mode the running kernel actually booted with, read back from the live DT.
+running_mode() {
+	case "$1" in
+		p1)
+			[ "$(dt_status sata@fc400000)" = "okay" ] && { printf 'sata'; return; }
+			[ "$(dt_status usb@fd000000)" = "okay" ] && { printf 'usb3'; return; }
+			;;
+		p2)
+			[ "$(dt_status sata@fc800000)" = "okay" ] && { printf 'sata'; return; }
+			[ "$(dt_status pcie@fe260000)" = "okay" ] && { printf 'pcie'; return; }
+			;;
+	esac
+	printf 'none'
+}
+
+# Physical level of a mux select line, via the gpio-hog's line-name. Root only,
+# and only meaningful once an overlay that hogs the line has been applied.
+mux_line() {
+	local want="$1" line
+	[ -r /sys/kernel/debug/gpio ] || { printf 'n/a (needs root)'; return; }
+	line=$(grep -F "$want" /sys/kernel/debug/gpio 2>/dev/null | head -1)
+	[ -n "$line" ] || { printf 'undriven'; return; }
+	case "$line" in
+		*" hi"*) printf 'high' ;;
+		*" lo"*) printf 'low' ;;
+		*) printf 'unknown' ;;
+	esac
+}
+
+# --- status ------------------------------------------------------------------
+
+show_one() {
+	local p="$1" desc="$2" modes="$3" cfg run mux effective
+	cfg=$(configured_mode "$p")
+	run=$(running_mode "$p")
+	mux=$(mux_line "cm3-io-${p}-mux")
+	printf 'Peripheral %s -- %s\n' "${p#p}" "$desc"
+	printf '  configured : %s\n' "$cfg"
+	printf '  running    : %s\n' "$run"
+	printf '  mux line   : %s\n' "$mux"
+	# "stock" boots as usb3 on p1 and as nothing on p2, so compare against
+	# that rather than report a pending reboot that would change nothing.
+	effective="$cfg"
+	if [ "$cfg" = "stock" ]; then
+		case "$p" in
+			p1) effective="usb3" ;;
+			p2) effective="none" ;;
+		esac
+	fi
+	[ "$effective" = "$run" ] || printf '  ** reboot required to apply "%s"\n' "$cfg"
+	printf '  modes      : %s\n\n' "$modes"
+}
+
+do_status() {
+	local foreign
+	show_one p1 "USB 3.0 type-A or SATA (combphy1, mux GPIO3_PC7)" "$P1_MODES"
+	show_one p2 "M.2 PCIe 2.0 x1 or SATA (combphy2, mux GPIO3_PC6)" "$P2_MODES"
+
+	foreign=$(foreign_overlays)
+	[ -n "$foreign" ] && printf 'Other overlays configured: %s\n' "$foreign"
+
+	printf 'SATA ports present: %s\n' \
+		"$(find /sys/class/ata_port -mindepth 1 -maxdepth 1 -printf '%f ' 2>/dev/null || true)"
+	printf 'PCI devices present: %s\n' \
+		"$(find /sys/bus/pci/devices -mindepth 1 -maxdepth 1 -printf '%f ' 2>/dev/null || true)"
+	return 0
+}
+
+# --- applying ----------------------------------------------------------------
+
+# Build the overlay list a given pair of modes implies, foreign entries first.
+build_list() {
+	local m1="$1" m2="$2" list
+	list=$(foreign_overlays)
+	[ "$m1" != "stock" ] && list="${list}cm3-io-p1-${m1}.dtbo "
+	[ "$m2" != "stock" ] && list="${list}cm3-io-p2-${m2}.dtbo "
+	printf '%s' "${list% }"
+}
+
+# Merge the overlays onto the real board DTB with fdtoverlay before touching any
+# boot configuration. This is the safety net: a label U-Boot could not resolve,
+# or a fragment targeting a node this kernel's DTB does not have, fails here
+# rather than at boot.
+validate_list() {
+	local list="$1" dir="$2" tmp rc=0 dtbo paths=""
+	[ -n "$list" ] || return 0
+	[ -r "$BOARD_DTB" ] || die "base device tree not found: $BOARD_DTB"
+	command -v fdtoverlay >/dev/null 2>&1 || \
+		die "fdtoverlay not found; install the device-tree-compiler package"
+
+	for dtbo in $list; do
+		[ -f "$dir/$dtbo" ] || die "overlay not found: $dir/$dtbo"
+		paths="$paths $dir/$dtbo"
+	done
+
+	tmp=$(mktemp) || die "could not create a temporary file"
+	# shellcheck disable=SC2086
+	fdtoverlay -i "$BOARD_DTB" -o "$tmp" $paths >/dev/null 2>&1 || rc=$?
+	if [ "$rc" -ne 0 ]; then
+		rm -f "$tmp"
+		die "overlays failed to apply to $BOARD_DTB -- boot config left unchanged"
+	fi
+	# fdtoverlay can exit 0 having produced nothing useful, so confirm the
+	# result is a device tree that still parses.
+	if ! fdtget "$tmp" / compatible >/dev/null 2>&1; then
+		rm -f "$tmp"
+		die "merged device tree did not parse -- boot config left unchanged"
+	fi
+	rm -f "$tmp"
+}
+
+# Only this tool's own overlays are removed from DTBO_DIR; anything else in
+# there was put there by hand and is left alone.
+sync_dtbo_dir() {
+	local list="$1" dtbo f
+	mkdir -p "$DTBO_DIR"
+	for f in "$DTBO_DIR"/cm3-io-p1-*.dtbo "$DTBO_DIR"/cm3-io-p2-*.dtbo; do
+		[ -f "$f" ] && rm -f "$f"
+	done
+	for dtbo in $list; do
+		case "$dtbo" in
+			cm3-io-p1-*.dtbo|cm3-io-p2-*.dtbo)
+				cp -f "$OVERLAY_LIB/$dtbo" "$DTBO_DIR/$dtbo" ||
+					die "could not install $dtbo into $DTBO_DIR"
+				;;
+		esac
+	done
+	sync
+}
+
+write_uboot_defaults() {
+	local list="$1" tmp
+	tmp=$(mktemp) || die "could not create a temporary file"
+	if [ -f "$UBOOT_DEFAULTS" ]; then
+		grep -v '^[[:space:]]*U_BOOT_FDT_OVERLAYS=' "$UBOOT_DEFAULTS" > "$tmp" || true
+	fi
+	printf 'U_BOOT_FDT_OVERLAYS="%s"\n' "$list" >> "$tmp"
+	cat "$tmp" > "$UBOOT_DEFAULTS" || die "could not write $UBOOT_DEFAULTS"
+	rm -f "$tmp"
+}
+
+apply() {
+	local m1="$1" m2="$2" list
+	list=$(build_list "$m1" "$m2")
+
+	# Validate the library copies first, then install and validate again from
+	# DTBO_DIR, so what actually landed in /boot is what got checked.
+	validate_list "$list" "$OVERLAY_LIB"
+	sync_dtbo_dir "$list"
+	validate_list "$list" "$DTBO_DIR"
+	write_uboot_defaults "$list"
+
+	u-boot-update || die "u-boot-update failed; check $UBOOT_DEFAULTS"
+
+	printf '\nSelected: p1=%s p2=%s\n' "$m1" "$m2"
+	if [ -n "$list" ]; then
+		printf 'Overlays: %s\n' "$list"
+	else
+		printf 'Overlays: none (stock device tree)\n'
+		if find "$DTBO_DIR" -maxdepth 1 -name '*.dtbo' 2>/dev/null | grep -q .; then
+			printf 'Note: other .dtbo files remain in %s, and with no explicit\n' "$DTBO_DIR"
+			printf '      list set u-boot-update applies every one of them.\n'
+		fi
+	fi
+	printf 'Reboot for this to take effect.\n'
+}
+
+valid_mode() {
+	local mode="$1" list="$2" m
+	for m in $list; do [ "$m" = "$mode" ] && return 0; done
+	return 1
+}
+
+# --- entry point -------------------------------------------------------------
+
+cmd="${1:-status}"
+case "$cmd" in
+	status) do_status ;;
+	list|-h|--help|help) usage ;;
+	reset)
+		need_root
+		apply stock stock
+		;;
+	set)
+		need_root
+		shift
+		[ $# -ge 2 ] || die "set needs a peripheral and a mode; see --help"
+		[ $(( $# % 2 )) -eq 0 ] || die "arguments must be <peripheral> <mode> pairs"
+		m1=$(configured_mode p1)
+		m2=$(configured_mode p2)
+		while [ $# -gt 0 ]; do
+			case "$1" in
+				p1|1)
+					valid_mode "$2" "$P1_MODES" || die "bad p1 mode '$2' (want: $P1_MODES)"
+					m1="$2"
+					;;
+				p2|2)
+					valid_mode "$2" "$P2_MODES" || die "bad p2 mode '$2' (want: $P2_MODES)"
+					m2="$2"
+					;;
+				*) die "unknown peripheral '$1' (want: p1 or p2)" ;;
+			esac
+			shift 2
+		done
+		apply "$m1" "$m2"
+		;;
+	*) die "unknown command '$cmd'; see --help" ;;
+esac
