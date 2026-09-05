@@ -224,9 +224,13 @@ if [ -z "${BOARD}" ] || [ -z "${SUITE}" ] || [ -z "${FLAVOR}" ]; then
     exit 1
 fi
 
-# Build the Linux kernel if not found
+# Build the Linux kernel if not found. Checking that *a* linux-image-*.deb
+# exists isn't enough on its own -- it says nothing about whether it was
+# actually built for this suite/board. Without the marker check, switching
+# suites (e.g. after an archive going dead, as happened with oracular) would
+# silently keep reusing a completely different kernel forever.
 if [[ ${LAUNCHPAD} != "Y" ]]; then
-    if [[ ! -e "$(find build/linux-image-*.deb | sort | tail -n1)" || ! -e "$(find build/linux-headers-*.deb | sort | tail -n1)" ]]; then
+    if [[ ! -e "$(find build/linux-image-*.deb | sort | tail -n1)" || ! -e "$(find build/linux-headers-*.deb | sort | tail -n1)" || "$(cat build/.kernel-build-marker 2> /dev/null)" != "${SUITE}:${BOARD}" ]]; then
         ./scripts/build-kernel.sh
     fi
 fi

@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ruhan <35257374+RuhanSA079@users.noreply.github.com>
+Date: Sun, 6 Sep 2026 00:00:00 +0000
+Subject: [PATCH] radxa-cm3-io: enable CONFIG_AHCI_DWC for onboard SATA
+
+The board's two SATA controllers (fc400000.sata / fc800000.sata,
+enabled via the cm3-io-p1-sata/p2-sata devicetree overlays) advertise
+compatible = "rockchip,rk3568-dwc-ahci", "snps,dwc-ahci". Only
+CONFIG_SATA_AHCI_PLATFORM was enabled, which doesn't match either
+compatible string, so the devicetree nodes came up with status=okay
+but no driver ever bound to them (no /sys/.../driver symlink, no
+ata_port). CONFIG_AHCI_DWC is the driver that actually claims this
+DesignWare-AHCI variant.
+
+---
+ debian.rockchip/config/config.common.ubuntu | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/debian.rockchip/config/config.common.ubuntu b/debian.rockchip/config/config.common.ubuntu
+--- a/debian.rockchip/config/config.common.ubuntu
++++ b/debian.rockchip/config/config.common.ubuntu
+@@ -2366,7 +2366,7 @@
+ CONFIG_SATA_AHCI=y
+ CONFIG_SATA_MOBILE_LPM_POLICY=0
+ CONFIG_SATA_AHCI_PLATFORM=y
+-# CONFIG_AHCI_DWC is not set
++CONFIG_AHCI_DWC=y
+ # CONFIG_AHCI_CEVA is not set
+ # CONFIG_AHCI_QORIQ is not set
+ # CONFIG_SATA_INIC162X is not set
+--
+2.43.0

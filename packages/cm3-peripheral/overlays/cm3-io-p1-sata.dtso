@@ -17,14 +17,14 @@
 	};
 
 	fragment@1 {
-		target = <&combphy1>;
+		target = <&combphy1_usq>;
 		__overlay__ {
 			status = "okay";
 		};
 	};
 
 	fragment@2 {
-		target = <&usb_host1_xhci>;
+		target = <&usbhost_dwc3>;
 		__overlay__ {
 			status = "disabled";
 		};

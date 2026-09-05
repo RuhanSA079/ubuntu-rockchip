@@ -52,3 +52,11 @@ export LANG=C
 
 # Compile the kernel into a deb package
 fakeroot debian/rules clean binary-headers binary-rockchip do_mainline_build=true
+
+# build.sh's caching check only looks for *any* linux-image-*.deb in build/,
+# regardless of which suite/board it was actually built for. Record what
+# this one was built for so that check can tell a stale kernel from a
+# previous suite/board apart from a genuinely reusable one, instead of
+# silently reusing (e.g.) an oracular-suite kernel forever after switching
+# to noble.
+echo "${SUITE}:${BOARD}" > ../.kernel-build-marker

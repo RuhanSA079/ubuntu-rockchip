@@ -1,0 +1,170 @@
+From 7c72aad5cecad3870e4e07c89fd695c1bc6f8ce5 Mon Sep 17 00:00:00 2001
+From: Ruhan <35257374+RuhanSA079@users.noreply.github.com>
+Date: Sat, 5 Sep 2026 00:00:00 +0000
+Subject: [PATCH] boardinfo: add out-of-tree boardinfo driver
+
+Vendored in from https://github.com/RuhanSA079/boardinfo-driver, wired
+up as an in-tree drivers/boardinfo/ built-in driver rather than an
+out-of-tree module so it is present without any post-install module
+loading step. It looks up a devicetree node literally named
+"boardinfo" and exposes its "boardname" string property at
+/proc/boardinfo; board dts files opt in by adding that node (see the
+following radxa-cm3-io patch).
+
+CONFIG_BOARDINFO defaults to y (depends only on OF, true on all arm64
+targets here), but it's also pinned explicitly in
+debian.rockchip/config/config.common.ubuntu so it isn't silently
+dropped by a future olddefconfig run.
+---
+ debian.rockchip/config/config.common.ubuntu |  1 +
+ drivers/Kconfig                             |  2 +
+ drivers/Makefile                            |  1 +
+ drivers/boardinfo/Kconfig                   | 11 +++
+ drivers/boardinfo/Makefile                  |  1 +
+ drivers/boardinfo/boardinfo.c               | 76 +++++++++++++++++++++
+ 6 files changed, 92 insertions(+)
+ create mode 100644 drivers/boardinfo/Kconfig
+ create mode 100644 drivers/boardinfo/Makefile
+ create mode 100644 drivers/boardinfo/boardinfo.c
+
+diff --git a/debian.rockchip/config/config.common.ubuntu b/debian.rockchip/config/config.common.ubuntu
+index 58006074b..76d7ad214 100644
+--- a/debian.rockchip/config/config.common.ubuntu
++++ b/debian.rockchip/config/config.common.ubuntu
+@@ -8416,6 +8416,7 @@ CONFIG_ROCKCHIP_RKNPU_DEBUG_FS=y
+ # CONFIG_ROCKCHIP_RKNPU_SRAM is not set
+ CONFIG_ROCKCHIP_RKNPU_DRM_GEM=y
+ # end of RKNPU
++CONFIG_BOARDINFO=y
+ # end of Device Drivers
+ 
+ #
+diff --git a/drivers/Kconfig b/drivers/Kconfig
+index 06753118a..7c8512f18 100644
+--- a/drivers/Kconfig
++++ b/drivers/Kconfig
+@@ -247,4 +247,6 @@ source "drivers/headset_observe/Kconfig"
+ 
+ source "drivers/rknpu/Kconfig"
+ 
++source "drivers/boardinfo/Kconfig"
++
+ endmenu
+diff --git a/drivers/Makefile b/drivers/Makefile
+index 29874ab08..c855cdc09 100644
+--- a/drivers/Makefile
++++ b/drivers/Makefile
+@@ -193,3 +193,4 @@ obj-$(CONFIG_RK_FLASH)		+= rkflash/
+ obj-$(CONFIG_RK_HEADSET)	+= headset_observe/
+ obj-$(CONFIG_RK_NAND)		+= rk_nand/
+ obj-$(CONFIG_ROCKCHIP_RKNPU)	+= rknpu/
++obj-$(CONFIG_BOARDINFO)		+= boardinfo/
+diff --git a/drivers/boardinfo/Kconfig b/drivers/boardinfo/Kconfig
+new file mode 100644
+index 000000000..f1caf218f
+--- /dev/null
++++ b/drivers/boardinfo/Kconfig
+@@ -0,0 +1,11 @@
++#
++# boardinfo drivers
++#
++# When adding new entries keep the list in alphabetical order
++
++config BOARDINFO
++        tristate "Device boardinfo"
++        default y
++        depends on OF
++        help
++          Driver to set board information from the Devicetree
+diff --git a/drivers/boardinfo/Makefile b/drivers/boardinfo/Makefile
+new file mode 100644
+index 000000000..fedb617ab
+--- /dev/null
++++ b/drivers/boardinfo/Makefile
+@@ -0,0 +1 @@
++obj-$(CONFIG_BOARDINFO)                 += boardinfo.o
+diff --git a/drivers/boardinfo/boardinfo.c b/drivers/boardinfo/boardinfo.c
+new file mode 100644
+index 000000000..fa188febf
+--- /dev/null
++++ b/drivers/boardinfo/boardinfo.c
+@@ -0,0 +1,76 @@
++/*
++* Boardinfo Linux driver written by RuhanSA079
++* Version: 0.1
++*/
++
++#include <linux/module.h>
++#include <linux/kernel.h>
++#include <linux/init.h>
++#include <linux/of.h>
++#include <linux/of_platform.h>
++#include <linux/proc_fs.h>
++#include <linux/seq_file.h>
++
++#define PROC_FILENAME "boardinfo"
++
++static struct device_node *boardinfo_node;
++static char boardname[64] = "unknown";
++
++static int boardinfo_proc_show(struct seq_file *m, void *v)
++{
++    seq_printf(m, "%s\n", boardname);
++    return 0;
++}
++
++static int boardinfo_proc_open(struct inode *inode, struct file *file)
++{
++    return single_open(file, boardinfo_proc_show, NULL);
++}
++
++static const struct proc_ops boardinfo_proc_fops = {
++    .proc_open    = boardinfo_proc_open,
++    .proc_read    = seq_read,
++    .proc_lseek   = seq_lseek,
++    .proc_release = single_release,
++};
++
++static int __init boardinfo_init(void)
++{
++    struct proc_dir_entry *entry;
++    const char *name;
++
++    boardinfo_node = of_find_node_by_name(NULL, "boardinfo");
++    if (!boardinfo_node) {
++        pr_err("boardinfo: DT node 'boardinfo' not found\n");
++        return -ENODEV;
++    }
++
++    if (of_property_read_string(boardinfo_node, "boardname", &name)) {
++        pr_err("boardinfo: 'boardname' property not found\n");
++        return -EINVAL;
++    }
++
++    strlcpy(boardname, name, sizeof(boardname));
++
++    entry = proc_create(PROC_FILENAME, 0444, NULL, &boardinfo_proc_fops);
++    if (!entry) {
++        pr_err("boardinfo: Failed to create /proc/%s\n", PROC_FILENAME);
++        return -ENOMEM;
++    }
++
++    pr_info("boardinfo: loaded, boardname=%s\n", boardname);
++    return 0;
++}
++
++static void __exit boardinfo_exit(void)
++{
++    remove_proc_entry(PROC_FILENAME, NULL);
++    pr_info("boardinfo: unloaded\n");
++}
++
++module_init(boardinfo_init);
++module_exit(boardinfo_exit);
++
++MODULE_LICENSE("GPL");
++MODULE_AUTHOR("RuhanSA079");
++MODULE_DESCRIPTION("Boardinfo reader from DTB");
+-- 
+2.43.0
+
