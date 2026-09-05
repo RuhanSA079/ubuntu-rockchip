@@ -3,3 +3,4 @@
 0003-add-boardinfo-driver.patch
 0004-radxa-cm3-io-add-boardinfo-dt-node.patch
 0005-radxa-cm3-io-enable-ahci-dwc.patch
+0006-radxa-cm3-io-add-wifi-sdio-node.patch

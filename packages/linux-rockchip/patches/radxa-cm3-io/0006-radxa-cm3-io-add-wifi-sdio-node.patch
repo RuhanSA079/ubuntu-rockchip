@@ -1,0 +1,95 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ruhan <35257374+RuhanSA079@users.noreply.github.com>
+Date: Sun, 6 Sep 2026 00:00:00 +0000
+Subject: [PATCH] radxa-cm3-io: add WiFi SDIO devicetree node
+
+The onboard BCM43455 WiFi (shares the same SDIO/BT combo chip as
+Bluetooth) was never wired up in our vendor-style devicetree at all --
+&sdmmc1 (fe2c0000.mmc, the actual SDIO host it's attached to) was left
+at its base "disabled" default, so the chip never enumerated on the
+bus and no wlan0 device was ever created.
+
+The GPIO assignments (WL_REG_ON on gpio2 RK_PB7 active-low via
+mmc-pwrseq-simple, host-wake IRQ on gpio2 RK_PC1, LPO clock from
+rk817's clkout2) come from the known-working mainline-lineage SoM dtsi
+for this same physical board/SoM, cross-checked against our tree:
+rk817 and gpio2 are present under the same labels here, and #clock-
+cells/clock-output-names on rk817 confirm index 1 is a valid clkout.
+Verified the full board dtb still compiles and every phandle reference
+here (rk817, gpio2, sdmmc1_bus4/clk/cmd, vcc_3v3, vcc_1v8) resolves.
+
+---
+ .../rk3566-radxa-rock-3-compute-module.dtsi  | 47 +++++++++++++++++++
+ 1 file changed, 47 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/rockchip/rk3566-radxa-rock-3-compute-module.dtsi b/arch/arm64/boot/dts/rockchip/rk3566-radxa-rock-3-compute-module.dtsi
+--- a/arch/arm64/boot/dts/rockchip/rk3566-radxa-rock-3-compute-module.dtsi
++++ b/arch/arm64/boot/dts/rockchip/rk3566-radxa-rock-3-compute-module.dtsi
+@@ -68,6 +68,15 @@
+ 			pinctrl-0 = <&user_led_set>;
+ 		};
+ 	};
++
++	sdio_pwrseq: pwrseq-sdio {
++		compatible = "mmc-pwrseq-simple";
++		clocks = <&rk817 1>;
++		clock-names = "ext_clock";
++		pinctrl-names = "default";
++		pinctrl-0 = <&wifi_reg_on_h>;
++		reset-gpios = <&gpio2 RK_PB7 GPIO_ACTIVE_LOW>;
++	};
+ };
+
+ &cpu0 {
+@@ -471,6 +480,34 @@
+ 	status = "okay";
+ };
+
++&sdmmc1 {
++	#address-cells = <1>;
++	#size-cells = <0>;
++	bus-width = <4>;
++	disable-wp;
++	cap-sd-highspeed;
++	cap-sdio-irq;
++	keep-power-in-suspend;
++	mmc-pwrseq = <&sdio_pwrseq>;
++	non-removable;
++	pinctrl-names = "default";
++	pinctrl-0 = <&sdmmc1_bus4 &sdmmc1_clk &sdmmc1_cmd>;
++	sd-uhs-sdr104;
++	vmmc-supply = <&vcc_3v3>;
++	vqmmc-supply = <&vcc_1v8>;
++	status = "okay";
++
++	wifi@1 {
++		compatible = "brcm,bcm43455-fmac";
++		reg = <1>;
++		interrupt-parent = <&gpio2>;
++		interrupts = <RK_PC1 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "host-wake";
++		pinctrl-names = "default";
++		pinctrl-0 = <&wifi_host_wake_h>;
++	};
++};
++
+ &gmac1 {
+ 	phy-mode = "rgmii";
+ 	clock_in_out = "input";
+@@ -638,4 +675,14 @@
+ 			rockchip,pins = <0 RK_PA6 RK_FUNC_GPIO &pcfg_pull_none>;
+ 		};
+ 	};
++
++	wifi {
++		wifi_reg_on_h: wifi-reg-on-h {
++			rockchip,pins = <2 RK_PB7 RK_FUNC_GPIO &pcfg_pull_none>;
++		};
++
++		wifi_host_wake_h: wifi-host-wake-h {
++			rockchip,pins = <2 RK_PC1 RK_FUNC_GPIO &pcfg_pull_none>;
++		};
++	};
+ };
+--
+2.43.0

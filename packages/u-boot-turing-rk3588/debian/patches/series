@@ -5,3 +5,4 @@
 0005-board-rockchip-Add-Xunlong-Orange-Pi-3B.patch
 0006-add-Radxa-zero-3w-support.patch
 0007-radxa-cm3-io-use-115200-baudrate.patch
+0008-radxa-cm3-io-power-on-user-and-pwr-leds.patch

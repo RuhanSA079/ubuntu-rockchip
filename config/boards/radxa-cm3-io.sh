@@ -23,9 +23,9 @@ function config_image_hook__radxa-cm3-io() {
 
     echo "==> [chroot] Installing linux-firmware for the BCM43455 WiFi NVRAM"
     chroot "${rootfs}" apt-get -y install linux-firmware
-    ln -sfn 'brcmfmac43455-sdio.AW-CM256SM.txt.zst' "${rootfs}/lib/firmware/brcm/brcmfmac43455-sdio.radxa,cm3-io.txt.zst"
+    ln -sfn 'brcmfmac43455-sdio.AW-CM256SM.txt.zst' "${rootfs}/lib/firmware/brcm/brcmfmac43455-sdio.radxa,radxa-cm3-io.txt.zst"
 
-    if [ ! -e "${rootfs}/lib/firmware/brcm/brcmfmac43455-sdio.radxa,cm3-io.txt.zst" ]; then
+    if [ ! -e "${rootfs}/lib/firmware/brcm/brcmfmac43455-sdio.radxa,radxa-cm3-io.txt.zst" ]; then
         echo "Error: linux-firmware no longer ships brcm/brcmfmac43455-sdio.AW-CM256SM.txt.zst" >&2
         echo "       The BCM43455 WiFi NVRAM link is dangling; pick a new source file." >&2
         return 1
